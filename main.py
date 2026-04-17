@@ -119,7 +119,3 @@ ax3.text(0.5, 0.5, report_text, fontsize=30, color='black', family='monospace', 
 plt.tight_layout()
 plt.show()
 
-print("強気でロング、強気でショート！頑張れ！")
-
-
-個人の特定や公開したらヤバい情報が隠れていないか、検査して。
