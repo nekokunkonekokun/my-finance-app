@@ -2,3 +2,4 @@ yfinance
 pandas
 scipy
 matplotlib
+feedparser
