@@ -17,7 +17,6 @@ INERTIA_THRESHOLD = 500
 T_SCORE_OVERHEAT = 75
 VELOCITY_FADE = 100
 
-st.set_page_config(layout="wide")
 st.title("Dual Logic Mission Control")
 
 # 1. データ取得
@@ -55,47 +54,43 @@ def format_short_time(dt):
     m = dt.minute
     return f"{h}{3 if m==30 else ''}"
 
-# 4目盛り(2時間)ごとのインデックスとラベル
+# 2時間ごと（4目盛りごと）の設定
 tick_spacing = 4 
 tick_indices = df_plot.index[::tick_spacing]
 tick_labels = [format_short_time(df_plot.loc[i, 'Datetime']) for i in tick_indices]
 
 # --- 2. 視覚化セクション ---
 
-plt.rcParams['axes.facecolor'] = 'none'
-plt.rcParams['figure.facecolor'] = 'none'
-plt.rcParams['text.color'] = 'white'
-plt.rcParams['axes.labelcolor'] = 'white'
-plt.rcParams['xtick.color'] = 'white'
-plt.rcParams['ytick.color'] = 'white'
+# 背景設定をリセット（白背景へ）
+plt.rcdefaults()
 
 # 【1枚目】
 fig1, (ax1_1, ax1_2) = plt.subplots(2, 1, figsize=(16, 12), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-ax1_1.plot(df_plot.index, df_plot['Close'], color='white', linewidth=2.5, label='Price')
+ax1_1.plot(df_plot.index, df_plot['Close'], color='black', linewidth=2.5, label='Price')
 ax1_1.plot(df_plot.index, df_plot['MA25'], color='orange', linestyle='--', alpha=0.7, label='MA25')
-ax1_1.scatter(df_plot[df_plot['Inertia_UP']].index, df_plot[df_plot['Inertia_UP']]['Close'], color='red', s=300, edgecolors='white', zorder=5)
-ax1_1.scatter(df_plot[df_plot['Inertia_DOWN']].index, df_plot[df_plot['Inertia_DOWN']]['Close'], color='cyan', s=300, edgecolors='white', zorder=5)
+ax1_1.scatter(df_plot[df_plot['Inertia_UP']].index, df_plot[df_plot['Inertia_UP']]['Close'], color='red', s=300, edgecolors='black', zorder=5)
+ax1_1.scatter(df_plot[df_plot['Inertia_DOWN']].index, df_plot[df_plot['Inertia_DOWN']]['Close'], color='blue', s=300, edgecolors='black', zorder=5)
 ax1_1.set_title("1. Long position: Inertia & Deviation Grid", fontsize=24, fontweight='bold')
 ax1_1.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
-ax1_1.grid(True, alpha=0.1)
+ax1_1.grid(True, alpha=0.2)
 
-ax1_2.plot(df_plot.index, df_plot['T_Score'], color='magenta', linewidth=2.5)
+ax1_2.plot(df_plot.index, df_plot['T_Score'], color='darkviolet', linewidth=2.5)
 ax1_2.set_ylim(20, 80)
 ax1_2.set_xticks(tick_indices)
-ax1_2.set_xticklabels(tick_labels)
-ax1_2.grid(axis='y', which='major', color='gray', linestyle='-', alpha=0.2)
+ax1_2.set_xticklabels(tick_labels, fontsize=10)
+ax1_2.grid(axis='y', which='major', color='gray', linestyle='-', alpha=0.3)
 st.pyplot(fig1)
 
 # 【2枚目】
-fig2, ax2 = plt.subplots(figsize=(16, 6))
-ax2.plot(df_plot.index, df_plot['T_Score'], color='magenta', linewidth=3)
+fig2, ax2 = plt.subplots(figsize=(16, 9))
+ax2.plot(df_plot.index, df_plot['T_Score'], color='darkviolet', linewidth=3)
 ax2.axhline(y=T_SCORE_OVERHEAT, color='crimson', linestyle='--', linewidth=3)
-ax2.scatter(df_plot[df_plot['Short_Signal']].index, df_plot[df_plot['Short_Signal']]['T_Score'], color='cyan', s=600, marker='v', edgecolors='white', zorder=10)
-ax2.set_title("2. Short position: Gravity Sniper Scope", fontsize=24, fontweight='bold', color='crimson')
+ax2.scatter(df_plot[df_plot['Short_Signal']].index, df_plot[df_plot['Short_Signal']]['T_Score'], color='blue', s=600, marker='v', edgecolors='white', zorder=10)
+ax2.set_title("2. Short position: Gravity Sniper Scope", fontsize=24, fontweight='bold', color='darkred')
 ax2.set_ylim(20, 95)
 ax2.set_xticks(tick_indices)
-ax2.set_xticklabels(tick_labels)
-ax2.grid(True, alpha=0.1)
+ax2.set_xticklabels(tick_labels, fontsize=10)
+ax2.grid(True, alpha=0.3)
 st.pyplot(fig2)
 
 # 【3枚目：ミッションパネル】
@@ -109,4 +104,3 @@ if latest['T_Score'] >= T_SCORE_OVERHEAT and latest['Velocity'] < VELOCITY_FADE:
 st.info(f"STATUS: {bull_status} / {bear_status}")
 st.write(f"PRICE: ¥{latest['Close']:,.0f} | SPEED: {latest['Velocity']:+.0f} | T-SCORE: {latest['T_Score']:.1f}")
 st.success("強気でロング、強気でショート！頑張れ！")
-
