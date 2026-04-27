@@ -17,109 +17,89 @@ T_SCORE_OVERHEAT = 75
 VELOCITY_FADE = 100
 
 st.set_page_config(layout="wide")
-st.title("Dual Logic Mission Control")
+st.title("🚀 Dual Logic Mission Control")
 
 # 1. データ取得と計算
-data = yf.download(ticker_sym, period=period, interval=interval, auto_adjust=True)
-if data.empty:
+@st.cache_data(ttl=600)
+def load_data():
+    data = yf.download(ticker_sym, period=period, interval=interval, auto_adjust=True)
+    if data.empty: return None
+    
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    
+    df = data.copy().dropna(subset=['Close']).reset_index()
+
+    # 指標計算
+    df['MA25'] = df['Close'].rolling(window=ma_window).mean()
+    df['Bias'] = (df['Close'] - df['MA25']) / df['MA25'] * 100
+    df['Bias_Mean'] = df['Bias'].rolling(window=std_window).mean()
+    df['Bias_Std'] = df['Bias'].rolling(window=std_window).std()
+    df['T_Score'] = ((df['Bias'] - df['Bias_Mean']) / df['Bias_Std']) * 10 + 50
+    df['Velocity'] = df['Close'].diff()
+
+    # シグナル
+    df['Inertia_UP'] = df['Velocity'] >= INERTIA_THRESHOLD
+    df['Inertia_DOWN'] = df['Velocity'] <= -INERTIA_THRESHOLD
+    df['Short_Signal'] = (df['T_Score'] >= T_SCORE_OVERHEAT) & (df['Velocity'].shift(1) > 300) & (df['Velocity'] < VELOCITY_FADE)
+
+    # 【重要】シカゴ時間ラベルの作成 (JST-14h)
+    df['CHI_DT'] = df['Datetime'] - timedelta(hours=14)
+    df['CHI_Label'] = df['CHI_DT'].apply(lambda x: f"{x.hour}{x.minute // 10}")
+    
+    return df
+
+df = load_data()
+if df is None:
     st.error("データの取得に失敗しました。")
     st.stop()
 
-if isinstance(data.columns, pd.MultiIndex):
-    data.columns = data.columns.get_level_values(0)
-
-df = data.copy().dropna(subset=['Close']).reset_index()
-
-# 指標計算 (全データで行うことで前日の値を引き継ぐ)
-df['MA25'] = df['Close'].rolling(window=ma_window).mean()
-df['Bias'] = (df['Close'] - df['MA25']) / df['MA25'] * 100
-df['Bias_Mean'] = df['Bias'].rolling(window=std_window).mean()
-df['Bias_Std'] = df['Bias'].rolling(window=std_window).std()
-df['T_Score'] = ((df['Bias'] - df['Bias_Mean']) / df['Bias_Std']) * 10 + 50
-df['Velocity'] = df['Close'].diff()
-
-df['Inertia_UP'] = df['Velocity'] >= INERTIA_THRESHOLD
-df['Inertia_DOWN'] = df['Velocity'] <= -INERTIA_THRESHOLD
-df['Short_Signal'] = (df['T_Score'] >= T_SCORE_OVERHEAT) & (df['Velocity'].shift(1) > 300) & (df['Velocity'] < VELOCITY_FADE)
-
-# 直近150本（約3日分強）を抽出して連続性を確保
-df_plot = df.tail(150).copy().reset_index(drop=True)
+# 直近2日間分を抽出（reset_indexで土日の空白を詰める）
+df_plot = df[df['Datetime'] >= (df['Datetime'].max() - timedelta(days=2))].copy().reset_index(drop=True)
 latest = df_plot.iloc[-1]
 
-# --- 短縮時刻ラベル関数の定義 ---
-def format_short_label(dt):
-    h = dt.hour
-    m = dt.minute
-    return f"{h}{3 if m==30 else ''}"
+# --- 2. 統合ミッションパネル ---
+st.subheader("Mission Control Panel")
+m1, m2, m3 = st.columns(3)
+m1.metric("PRICE", f"¥{latest['Close']:,.0f}", f"{latest['Velocity']:+.0f}")
+m2.metric("T-SCORE", f"{latest['T_Score']:.1f}")
+m3.write(f"**CHI TIME:** {latest['CHI_DT'].strftime('%H:%M')} (Day: {latest['CHI_DT'].day})")
 
-# 2. 視覚化セクション
-plt.rcdefaults() 
-plt.rcParams['figure.facecolor'] = 'white'
+# --- 3. 視覚化セクション ---
+# X軸ラベルの設定（2時間おき＝4プロットごと）
+tick_interval = 4
+tick_idx = df_plot.index[::tick_interval]
+tick_lab = [str(df_plot.loc[i, 'CHI_Label']) for i in tick_idx]
 
-# 【Chart 1: Long position】
-fig1, (ax1_1, ax1_2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-fig1.patch.set_facecolor('white')
+# Chart 1: Long position
+fig1, (ax1_1, ax1_2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={'height_ratios': [2, 1]})
+plt.subplots_adjust(hspace=0.05)
 
-# 価格とMA
-ax1_1.plot(df_plot.index, df_plot['Close'], color='black', linewidth=2, label='Price')
-ax1_1.plot(df_plot.index, df_plot['MA25'], color='orange', linewidth=1.5, linestyle='--', label='MA25')
+# 上段: 価格とMA25
+ax1_1.plot(df_plot.index, df_plot['Close'], color='black', linewidth=2)
+ax1_1.plot(df_plot.index, df_plot['MA25'], color='orange', linestyle='--', alpha=0.7)
+ax1_1.scatter(df_plot[df_plot['Inertia_UP']].index, df_plot[df_plot['Inertia_UP']]['Close'], color='red', s=100, zorder=5)
+ax1_1.scatter(df_plot[df_plot['Inertia_DOWN']].index, df_plot[df_plot['Inertia_DOWN']]['Close'], color='blue', s=100, zorder=5)
+ax1_1.set_xticks(tick_idx)
+ax1_1.set_xticklabels([]) # 上段のラベルは非表示
+ax1_1.grid(True, alpha=0.2)
 
-# 慣性ドット
-up_idx = df_plot[df_plot['Inertia_UP']].index
-ax1_1.scatter(up_idx, df_plot.loc[up_idx, 'Close'], color='red', s=200, edgecolors='black', zorder=5, label='Inertia UP')
-down_idx = df_plot[df_plot['Inertia_DOWN']].index
-ax1_1.scatter(down_idx, df_plot.loc[down_idx, 'Close'], color='blue', s=200, edgecolors='black', zorder=5, label='Inertia DOWN')
-
-ax1_1.set_title("1. Long position: Inertia & Deviation Grid", fontsize=18, fontweight='bold')
-ax1_1.grid(True, color='gray', alpha=0.2)
-ax1_1.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
-
-# T-Score (サブ)
+# 下段: T-Score
 ax1_2.plot(df_plot.index, df_plot['T_Score'], color='darkviolet', linewidth=2)
-ax1_2.axhline(y=50, color='gray', linestyle='-', alpha=0.5)
-ax1_2.set_ylim(20, 80)
-ax1_2.grid(True, color='gray', alpha=0.2)
-
-# 【Chart 2: Short position】
-fig2, ax2 = plt.subplots(figsize=(16, 6))
-fig2.patch.set_facecolor('white')
-ax2.plot(df_plot.index, df_plot['T_Score'], color='darkviolet', linewidth=2.5)
-ax2.axhline(y=T_SCORE_OVERHEAT, color='crimson', linestyle='--', linewidth=2, label='Overheat (75)') # 偏差値破線
-ax2.fill_between(df_plot.index, T_SCORE_OVERHEAT, 95, color='crimson', alpha=0.1) # 警告ゾーン塗り
-
-# スナイパーシグナル
-short_idx = df_plot[df_plot['Short_Signal']].index
-ax2.scatter(short_idx, df_plot.loc[short_idx, 'T_Score'], color='blue', s=400, marker='v', edgecolors='white', zorder=10)
-
-ax2.set_title("2. Short position: Gravity Sniper Scope", fontsize=18, fontweight='bold', color='darkred')
-ax2.set_ylim(20, 95)
-ax2.grid(True, color='gray', alpha=0.2)
-
-# --- X軸ラベルの共通設定（短縮表記） ---
-tick_spacing = 6 # 3時間おき
-tick_indices = df_plot.index[::tick_spacing]
-tick_labels = [format_short_label(df_plot.loc[i, 'Datetime']) for i in tick_indices]
-
-for ax in [ax1_2, ax2]:
-    ax.set_xticks(tick_indices)
-    ax.set_xticklabels(tick_labels, fontsize=10)
-
+ax1_2.axhline(70, color='red', alpha=0.3); ax1_2.axhline(30, color='green', alpha=0.3)
+ax1_2.set_xticks(tick_idx)
+ax1_2.set_xticklabels(tick_lab, fontsize=9)
+ax1_2.grid(True, axis='x', alpha=0.2)
 st.pyplot(fig1)
+
+# Chart 2: Short position
+fig2, ax2 = plt.subplots(figsize=(12, 5))
+ax2.plot(df_plot.index, df_plot['T_Score'], color='darkviolet', linewidth=2)
+ax2.axhline(y=T_SCORE_OVERHEAT, color='crimson', linestyle='--', linewidth=2)
+ax2.scatter(df_plot[df_plot['Short_Signal']].index, df_plot[df_plot['Short_Signal']]['T_Score'], color='blue', s=200, marker='v', zorder=5)
+ax2.set_xticks(tick_idx)
+ax2.set_xticklabels(tick_lab, fontsize=9)
+ax2.grid(True, axis='x', alpha=0.2)
 st.pyplot(fig2)
 
-# 3. ミッションパネル
-col1, col2 = st.columns(2)
-with col1:
-    bull_status = "CRUISING"
-    if latest['Velocity'] >= INERTIA_THRESHOLD: bull_status = "!!! RED INERTIA !!!"
-    elif latest['Velocity'] <= -INERTIA_THRESHOLD: bull_status = "!!! BLUE INERTIA !!!"
-    st.metric("BULL STATUS", bull_status)
-
-with col2:
-    bear_status = "CALM"
-    if latest['T_Score'] >= T_SCORE_OVERHEAT and latest['Velocity'] < VELOCITY_FADE: bear_status = "!!! SNIPER READY !!!"
-    st.metric("BEAR STATUS", bear_status)
-
-st.write(f"**LATEST DATA:** PRICE: ¥{latest['Close']:,.0f} | SPEED: {latest['Velocity']:+.0f} | T-SCORE: {latest['T_Score']:.1f}")
-st.success("強気でロング、強気でショート！")
-
+st.caption("私の回答にはハルシネーションが含まれている可能性があります。")
