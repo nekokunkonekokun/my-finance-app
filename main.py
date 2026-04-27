@@ -16,7 +16,7 @@ ma_window = 25
 std_window = 160
 T_SCORE_OVERHEAT = 75
 
-st.title("🚀 Dual Logic: Mission Control [Exorcist Mode]")
+st.title("🚀 Dual Logic: Mission Control [Long&Short W Mode]")
 
 @st.cache_data(ttl=60) # 更新頻度を上げて幽霊を追い出す
 def load_data():
